@@ -3,144 +3,131 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Luis Rojas | Fitness Cloud</title>
+    <title>Luis Rojas | Fitness Cloud Pro</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- Firebase SDK Legacy para máxima compatibilidad en un solo archivo -->
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap');
-        body { 
-            font-family: 'Plus Jakarta Sans', sans-serif; 
-            background-color: #f8fafc; 
-            color: #1e293b;
-        }
-        .glass-card { 
-            background: white; 
-            border: 1px solid #e2e8f0; 
-            border-radius: 1.25rem; 
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05); 
-        }
-        .input-label { 
-            font-size: 0.65rem; 
-            font-weight: 800; 
-            color: #94a3b8; 
-            text-transform: uppercase; 
-            letter-spacing: 0.05em; 
-            margin-bottom: 0.35rem; 
-            display: block; 
-        }
-        .input-box { 
-            width: 100%; 
-            padding: 0.75rem; 
-            background: #f1f5f9; 
-            border: 1px solid #e2e8f0; 
-            border-radius: 0.75rem; 
-            font-size: 0.95rem; 
-            outline: none; 
-            transition: all 0.2s; 
-        }
-        .input-box:focus { 
-            border-color: #3b82f6; 
-            background: white; 
-            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-        }
-        .btn-primary { 
-            background: #0f172a; 
-            color: white; 
-            font-weight: 700; 
-            padding: 1rem; 
-            border-radius: 1rem; 
-            width: 100%; 
-            transition: all 0.2s; 
-            border: none; 
-            cursor: pointer; 
-        }
-        .btn-primary:hover { 
-            background: #1e293b; 
-            transform: translateY(-1px); 
-        }
-        .btn-primary:disabled { 
-            opacity: 0.5; 
-            cursor: not-allowed; 
-        }
-        .status-badge { 
-            font-size: 10px; 
-            font-weight: 800; 
-            padding: 4px 10px; 
-            border-radius: 99px; 
-            display: flex; 
-            align-items: center; 
-            gap: 6px; 
-        }
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #f8fafc; color: #1e293b; }
+        .glass-card { background: white; border: 1px solid #e2e8f0; border-radius: 1.25rem; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .input-label { font-size: 0.65rem; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.35rem; display: block; }
+        .input-box { width: 100%; padding: 0.6rem 0.75rem; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 0.75rem; font-size: 0.9rem; outline: none; transition: all 0.2s; }
+        .input-box:focus { border-color: #3b82f6; background: white; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1); }
+        .btn-primary { background: #0f172a; color: white; font-weight: 700; padding: 1rem; border-radius: 1rem; width: 100%; transition: all 0.2s; border: none; cursor: pointer; }
+        .btn-primary:hover { background: #1e293b; transform: translateY(-1px); }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+        .section-title { font-size: 0.75rem; font-weight: 800; color: #3b82f6; text-transform: uppercase; margin-top: 1rem; margin-bottom: 0.5rem; border-bottom: 1px solid #eff6ff; padding-bottom: 2px; }
     </style>
 </head>
 <body class="min-h-screen pb-20">
 
     <nav class="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-slate-200">
-        <div class="max-w-5xl mx-auto px-6 h-16 flex items-center justify-between">
+        <div class="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
             <div class="flex items-center gap-2">
                 <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold">L</div>
-                <h1 class="font-extrabold tracking-tight">LUIS<span class="text-blue-600">FIT</span></h1>
+                <h1 class="font-extrabold tracking-tight text-slate-900">LUIS<span class="text-blue-600">FIT</span></h1>
             </div>
-            <div id="syncStatus" class="status-badge bg-slate-100 text-slate-500">
+            <div id="syncStatus" class="text-[10px] font-bold px-3 py-1 rounded-full bg-slate-100 text-slate-500 uppercase tracking-widest flex items-center gap-2">
                 <span class="w-2 h-2 rounded-full bg-slate-400"></span>
                 CONECTANDO...
             </div>
         </div>
     </nav>
 
-    <main class="max-w-5xl mx-auto px-4 pt-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+    <main class="max-w-6xl mx-auto px-4 pt-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
         
-        <!-- Formulario de Entrada -->
-        <div class="lg:col-span-4">
+        <!-- Formulario Completo -->
+        <div class="lg:col-span-5">
             <div class="glass-card p-6">
-                <h2 class="font-bold text-slate-800 mb-6 flex items-center gap-2">
+                <h2 class="font-bold text-slate-800 mb-4 flex items-center gap-2 text-lg">
                     <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-                    Nuevo Registro
+                    Medición Completa
                 </h2>
-                <form id="fitForm" class="space-y-4">
-                    <div>
-                        <label class="input-label">Fecha</label>
-                        <input type="date" id="fecha" class="input-box" required>
-                    </div>
-                    <div>
-                        <label class="input-label">Peso Actual (kg)</label>
-                        <input type="number" step="0.1" id="peso" class="input-box" placeholder="0.0" required>
-                    </div>
+                <form id="fitForm" class="space-y-3">
                     <div class="grid grid-cols-2 gap-3">
                         <div>
-                            <label class="input-label">Cuello (cm)</label>
-                            <input type="number" step="0.1" id="cuello" class="input-box" placeholder="42" required>
+                            <label class="input-label">Fecha</label>
+                            <input type="date" id="fecha" class="input-box" required>
                         </div>
                         <div>
-                            <label class="input-label">Cintura (cm)</label>
-                            <input type="number" step="0.1" id="cintura" class="input-box" placeholder="108" required>
+                            <label class="input-label">Peso (kg)</label>
+                            <input type="number" step="0.1" id="peso" class="input-box" placeholder="110.0" required>
                         </div>
                     </div>
+
+                    <p class="section-title">Tronco y Cabeza</p>
+                    <div class="grid grid-cols-3 gap-3">
+                        <div>
+                            <label class="input-label">Cuello</label>
+                            <input type="number" step="0.1" id="cuello" class="input-box" placeholder="42">
+                        </div>
+                        <div>
+                            <label class="input-label">Hombros</label>
+                            <input type="number" step="0.1" id="hombros" class="input-box" placeholder="0">
+                        </div>
+                        <div>
+                            <label class="input-label">Pecho</label>
+                            <input type="number" step="0.1" id="pecho" class="input-box" placeholder="118">
+                        </div>
+                    </div>
+
+                    <p class="section-title">Zona Media</p>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="input-label">Cintura</label>
+                            <input type="number" step="0.1" id="cintura" class="input-box" placeholder="108" required>
+                        </div>
+                        <div>
+                            <label class="input-label">Abdomen</label>
+                            <input type="number" step="0.1" id="abdomen" class="input-box" placeholder="118">
+                        </div>
+                    </div>
+
+                    <p class="section-title">Extremidades Superiores</p>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="input-label">Bíceps (D/I)</label>
+                            <input type="number" step="0.1" id="biceps" class="input-box" placeholder="38">
+                        </div>
+                        <div>
+                            <label class="input-label">Antebrazo</label>
+                            <input type="number" step="0.1" id="antebrazo" class="input-box" placeholder="30">
+                        </div>
+                    </div>
+
+                    <p class="section-title">Extremidades Inferiores</p>
+                    <div class="grid grid-cols-3 gap-3">
+                        <div>
+                            <label class="input-label">Caderas</label>
+                            <input type="number" step="0.1" id="caderas" class="input-box" placeholder="117">
+                        </div>
+                        <div>
+                            <label class="input-label">Muslo</label>
+                            <input type="number" step="0.1" id="muslo" class="input-box" placeholder="65">
+                        </div>
+                        <div>
+                            <label class="input-label">Pantorrilla</label>
+                            <input type="number" step="0.1" id="pantorrilla" class="input-box" placeholder="47">
+                        </div>
+                    </div>
+
                     <input type="hidden" id="estatura" value="178">
-                    <button type="submit" id="submitBtn" class="btn-primary" disabled>
+                    <button type="submit" id="submitBtn" class="btn-primary mt-4" disabled>
                         Guardar en la Nube
                     </button>
                 </form>
             </div>
-            
-            <div class="mt-4 p-4 bg-blue-50 border border-blue-100 rounded-2xl flex gap-3">
-                <svg class="w-5 h-5 text-blue-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                <p class="text-[11px] text-blue-800 leading-relaxed font-semibold">
-                    Tus datos se sincronizan automáticamente. Lo que anotes aquí aparecerá en tu móvil al instante.
-                </p>
-            </div>
         </div>
 
-        <!-- Dashboard de Resultados -->
-        <div class="lg:col-span-8 space-y-6">
+        <!-- Dashboard -->
+        <div class="lg:col-span-7 space-y-6">
             <div class="grid grid-cols-3 gap-3">
                 <div class="glass-card p-4 text-center">
                     <p class="input-label">Peso</p>
-                    <p id="curPeso" class="text-xl font-800">--</p>
+                    <p id="curPeso" class="text-xl font-800 text-slate-900">--</p>
                 </div>
                 <div class="glass-card p-4 text-center">
                     <p class="input-label">Grasa %</p>
@@ -152,27 +139,26 @@
                 </div>
             </div>
 
-            <div class="glass-card p-6 h-72">
+            <div class="glass-card p-6 h-64">
                 <canvas id="fitnessChart"></canvas>
             </div>
 
             <div class="glass-card overflow-hidden">
-                <div class="p-4 bg-slate-50 border-b border-slate-200">
+                <div class="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
                     <h3 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Historial Sincronizado</h3>
                 </div>
                 <div class="overflow-x-auto">
                     <table class="w-full text-left text-sm">
                         <thead class="bg-slate-50 text-slate-400 text-[10px] uppercase font-bold border-b">
                             <tr>
-                                <th class="px-6 py-4">Fecha</th>
-                                <th class="px-6 py-4">Peso</th>
-                                <th class="px-6 py-4">Grasa %</th>
-                                <th class="px-6 py-4 text-right">Acción</th>
+                                <th class="px-4 py-3">Fecha</th>
+                                <th class="px-4 py-3">Peso</th>
+                                <th class="px-4 py-3">Cintura</th>
+                                <th class="px-4 py-3">Grasa</th>
+                                <th class="px-4 py-3 text-right"></th>
                             </tr>
                         </thead>
-                        <tbody id="tableBody" class="divide-y divide-slate-100">
-                            <!-- Datos dinámicos -->
-                        </tbody>
+                        <tbody id="tableBody" class="divide-y divide-slate-100"></tbody>
                     </table>
                 </div>
             </div>
@@ -180,7 +166,6 @@
     </main>
 
     <script>
-        // Configuración inyectada
         const firebaseConfig = JSON.parse(__firebase_config);
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'luis-fitness-cloud';
         
@@ -195,25 +180,26 @@
             const badge = document.getElementById('syncStatus');
             if(mode === 'online') {
                 badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-500"></span> NUBE ACTIVA`;
-                badge.className = "status-badge bg-emerald-50 text-emerald-600";
+                badge.className = "text-[10px] font-bold px-3 py-1 rounded-full bg-emerald-50 text-emerald-600 uppercase tracking-widest flex items-center gap-2";
             } else if(mode === 'sync') {
                 badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span> GUARDANDO...`;
-                badge.className = "status-badge bg-blue-50 text-blue-600";
+                badge.className = "text-[10px] font-bold px-3 py-1 rounded-full bg-blue-50 text-blue-600 uppercase tracking-widest flex items-center gap-2";
             }
         }
 
-        // Iniciar conexión
         auth.signInAnonymously().then(() => {
             setStatus('online');
             document.getElementById('submitBtn').disabled = false;
             
-            // Escuchar cambios en tiempo real
             db.collection(path).onSnapshot(snapshot => {
                 const data = [];
                 snapshot.forEach(doc => data.push({ id: doc.id, ...doc.data() }));
                 const sorted = data.sort((a,b) => new Date(a.fecha) - new Date(b.fecha));
                 updateDashboard(sorted);
-            }, err => console.error("Error Firebase:", err));
+            });
+        }).catch(err => {
+            console.error("Auth Error:", err);
+            alert("Error de conexión con la nube");
         });
 
         function updateDashboard(data) {
@@ -230,10 +216,11 @@
 
                 body.innerHTML += `
                     <tr class="hover:bg-slate-50 transition-colors">
-                        <td class="px-6 py-4 font-bold text-slate-600">${entry.fecha}</td>
-                        <td class="px-6 py-4 font-extrabold text-slate-900">${entry.peso}kg</td>
-                        <td class="px-6 py-4 font-bold text-purple-600">${entry.grasa}%</td>
-                        <td class="px-6 py-4 text-right">
+                        <td class="px-4 py-3 font-bold text-slate-600 text-xs">${entry.fecha}</td>
+                        <td class="px-4 py-3 font-extrabold text-slate-900">${entry.peso}k</td>
+                        <td class="px-4 py-3 text-slate-500">${entry.cintura}</td>
+                        <td class="px-4 py-3 font-bold text-purple-600">${entry.grasa}%</td>
+                        <td class="px-4 py-3 text-right">
                             <button onclick="removeItem('${entry.id}')" class="text-slate-300 hover:text-red-500 text-lg">×</button>
                         </td>
                     </tr>
@@ -256,7 +243,6 @@
                 data: {
                     labels: labels,
                     datasets: [{
-                        label: 'Evolución de Peso',
                         data: values,
                         borderColor: '#3b82f6',
                         borderWidth: 3,
@@ -279,35 +265,50 @@
             });
         }
 
-        document.getElementById('fitForm').onsubmit = async (e) => {
+        document.getElementById('fitForm').addEventListener('submit', async (e) => {
             e.preventDefault();
+            const btn = document.getElementById('submitBtn');
+            btn.disabled = true;
             setStatus('sync');
             
             const p = parseFloat(document.getElementById('peso').value);
-            const cue = parseFloat(document.getElementById('cuello').value);
-            const cin = parseFloat(document.getElementById('cintura').value);
+            const cue = parseFloat(document.getElementById('cuello').value) || 0;
+            const cin = parseFloat(document.getElementById('cintura').value) || 0;
             const fecha = document.getElementById('fecha').value;
             const est = 178;
 
-            const imc = (p / ((est/100)**2)).toFixed(1);
-            // Fórmula Marina simplificada
-            const grasa = (495 / (1.0324 - 0.19077 * Math.log10(cin - cue) + 0.15456 * Math.log10(est)) - 450).toFixed(1);
+            // Nuevos valores capturados
+            const med = {
+                fecha,
+                peso: p,
+                cuello: cue,
+                cintura: cin,
+                hombros: parseFloat(document.getElementById('hombros').value) || 0,
+                pecho: parseFloat(document.getElementById('pecho').value) || 0,
+                abdomen: parseFloat(document.getElementById('abdomen').value) || 0,
+                biceps: parseFloat(document.getElementById('biceps').value) || 0,
+                antebrazo: parseFloat(document.getElementById('antebrazo').value) || 0,
+                caderas: parseFloat(document.getElementById('caderas').value) || 0,
+                muslo: parseFloat(document.getElementById('muslo').value) || 0,
+                pantorrilla: parseFloat(document.getElementById('pantorrilla').value) || 0,
+                imc: (p / ((est/100)**2)).toFixed(1),
+                grasa: (495 / (1.0324 - 0.19077 * Math.log10(cin - cue) + 0.15456 * Math.log10(est)) - 450).toFixed(1)
+            };
 
             try {
-                await db.collection(path).doc(fecha).set({
-                    fecha, peso: p, imc, grasa, cintura: cin, cuello: cue
-                });
+                await db.collection(path).doc(fecha).set(med);
                 setStatus('online');
                 e.target.reset();
                 document.getElementById('fecha').valueAsDate = new Date();
             } catch (err) {
-                alert("Error al guardar: " + err.message);
-                setStatus('online');
+                alert("Error: " + err.message);
+            } finally {
+                btn.disabled = false;
             }
-        };
+        });
 
         window.removeItem = async (id) => {
-            if(confirm("¿Seguro que quieres borrar este registro?")) {
+            if(confirm("¿Borrar este registro de la nube?")) {
                 await db.collection(path).doc(id).delete();
             }
         };
