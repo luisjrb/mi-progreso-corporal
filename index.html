@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tracker de Composición Corporal Completo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+        .card { background: white; border-radius: 1rem; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); }
+        .input-group label { display: block; font-size: 0.75rem; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 0.25rem; }
+        .input-field { width: 100%; padding: 0.5rem; border: 1px solid #e2e8f0; border-radius: 0.5rem; transition: all 0.2s; font-size: 0.875rem; }
+        .input-field:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1); }
+        .loader { border-top-color: #3b82f6; animation: spinner 1.5s linear infinite; }
+        @keyframes spinner { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        /* Scrollbar styling */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+    <div class="max-w-7xl mx-auto">
+        <header class="mb-8 flex flex-col md:flex-row justify-between items-center gap-4">
+            <div>
+                <h1 class="text-3xl font-bold text-slate-800">Panel Corporal: Luis Rojas ✨</h1>
+                <p class="text-slate-500 font-medium">Seguimiento detallado de medidas y composición</p>
+            </div>
+            <button id="aiAnalyzeBtn" class="bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-6 py-2.5 rounded-full font-bold shadow-lg hover:shadow-indigo-200 transition flex items-center gap-2">
+                <span>✨</span> Análisis Inteligente
+            </button>
+        </header>
+
+        <!-- AI Modal -->
+        <div id="aiModal" class="fixed inset-0 bg-slate-900/60 hidden items-center justify-center z-50 p-4 backdrop-blur-sm">
+            <div class="bg-white rounded-2xl max-w-2xl w-full max-h-[85vh] overflow-y-auto p-8 relative shadow-2xl">
+                <button onclick="closeModal()" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 text-2xl font-bold">&times;</button>
+                <div id="aiLoading" class="flex flex-col items-center py-12 hidden">
+                    <div class="loader ease-linear rounded-full border-4 border-t-4 border-slate-100 h-12 w-12 mb-4"></div>
+                    <p class="text-slate-600 animate-pulse font-medium">Gemini está analizando tus medidas corporales...</p>
+                </div>
+                <div id="aiContent" class="prose prose-slate max-w-none prose-headings:text-indigo-900 prose-strong:text-indigo-700">
+                    <!-- Respuesta de IA -->
+                </div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            <!-- Formulario de Entrada (4 columnas) -->
+            <div class="lg:col-span-4 space-y-6">
+                <div class="card p-6 border border-slate-100">
+                    <h2 class="text-xl font-bold mb-6 text-slate-800 flex items-center gap-2">
+                        <span class="bg-slate-100 p-2 rounded-lg text-lg">📏</span> Nuevo Registro
+                    </h2>
+                    <form id="trackerForm" class="space-y-6">
+                        <!-- Datos Básicos -->
+                        <div class="grid grid-cols-2 gap-4 bg-slate-50 p-3 rounded-xl">
+                            <div class="input-group">
+                                <label>Fecha</label>
+                                <input type="date" id="fecha" class="input-field" required>
+                            </div>
+                            <div class="input-group">
+                                <label>Peso (kg)</label>
+                                <input type="number" step="0.1" id="peso" class="input-field" placeholder="0.0" required>
+                            </div>
+                            <div class="input-group">
+                                <label>Estatura (cm)</label>
+                                <input type="number" id="estatura" class="input-field" value="178" required>
+                            </div>
+                            <div class="input-group">
+                                <label>Género</label>
+                                <select id="genero" class="input-field">
+                                    <option value="hombre">Hombre</option>
+                                    <option value="mujer">Mujer</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Sección de Composición (Críticas para fórmulas) -->
+                        <div class="space-y-4">
+                            <p class="text-[10px] font-black text-blue-500 uppercase tracking-widest">Esenciales para % Grasa</p>
+                            <div class="grid grid-cols-3 gap-3">
+                                <div class="input-group">
+                                    <label>Cuello</label>
+                                    <input type="number" step="0.1" id="cuello" class="input-field" placeholder="cm" required>
+                                </div>
+                                <div class="input-group">
+                                    <label>Cintura</label>
+                                    <input type="number" step="0.1" id="cintura" class="input-field" placeholder="cm" required>
+                                </div>
+                                <div id="caderaGroup" class="input-group hidden">
+                                    <label>Cadera</label>
+                                    <input type="number" step="0.1" id="cadera" class="input-field" placeholder="cm">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Medidas Adicionales (Basadas en tu archivo) -->
+                        <div class="space-y-4">
+                            <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Perímetros Corporales (cm)</p>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div class="input-group">
+                                    <label>Hombros</label>
+                                    <input type="number" step="0.1" id="hombros" class="input-field" placeholder="cm">
+                                </div>
+                                <div class="input-group">
+                                    <label>Pecho</label>
+                                    <input type="number" step="0.1" id="pecho" class="input-field" placeholder="cm">
+                                </div>
+                                <div class="input-group">
+                                    <label>Bíceps</label>
+                                    <input type="number" step="0.1" id="biceps" class="input-field" placeholder="cm">
+                                </div>
+                                <div class="input-group">
+                                    <label>Antebrazo</label>
+                                    <input type="number" step="0.1" id="antebrazo" class="input-field" placeholder="cm">
+                                </div>
+                                <div class="input-group">
+                                    <label>Abdomen</label>
+                                    <input type="number" step="0.1" id="abdomen" class="input-field" placeholder="cm">
+                                </div>
+                                <div class="input-group">
+                                    <label>Glúteos</label>
+                                    <input type="number" step="0.1" id="gluteos" class="input-field" placeholder="cm">
+                                </div>
+                                <div class="input-group">
+                                    <label>Muslo</label>
+                                    <input type="number" step="0.1" id="muslo" class="input-field" placeholder="cm">
+                                </div>
+                                <div class="input-group">
+                                    <label>Pantorrilla</label>
+                                    <input type="number" step="0.1" id="pantorrilla" class="input-field" placeholder="cm">
+                                </div>
+                            </div>
+                        </div>
+
+                        <button type="submit" class="w-full bg-slate-900 text-white font-bold py-4 rounded-xl hover:bg-black transition shadow-lg shadow-slate-200">
+                            Guardar Registro
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Recomendación IA -->
+                <div id="quickTips" class="card p-6 bg-gradient-to-br from-indigo-600 to-blue-700 text-white hidden">
+                    <h3 class="font-bold mb-2 flex items-center gap-2">
+                        <span>💡</span> Objetivo Recomendado
+                    </h3>
+                    <p id="aiRecommendationText" class="text-sm opacity-90 italic">
+                        Analizando tus últimos datos...
+                    </p>
+                </div>
+            </div>
+
+            <!-- Dashboard Visual (8 columnas) -->
+            <div class="lg:col-span-8 space-y-6">
+                <!-- Tarjetas de Último Estado -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="card p-5 border-l-4 border-l-blue-500">
+                        <p class="text-xs font-bold text-slate-400 uppercase mb-1">Peso</p>
+                        <h3 id="statPeso" class="text-3xl font-black text-slate-800">-- kg</h3>
+                    </div>
+                    <div class="card p-5 border-l-4 border-l-emerald-500">
+                        <p class="text-xs font-bold text-slate-400 uppercase mb-1">IMC</p>
+                        <h3 id="statIMC" class="text-3xl font-black text-slate-800">--</h3>
+                    </div>
+                    <div class="card p-5 border-l-4 border-l-purple-500">
+                        <p class="text-xs font-bold text-slate-400 uppercase mb-1">% Grasa</p>
+                        <h3 id="statGrasa" class="text-3xl font-black text-slate-800">-- %</h3>
+                    </div>
+                </div>
+
+                <!-- Gráfico Principal -->
+                <div class="card p-6">
+                    <h2 class="text-lg font-bold mb-4 text-slate-800">Evolución del Progreso</h2>
+                    <div style="height: 350px;">
+                        <canvas id="mainChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Tabla de Historial Expandida -->
+                <div class="card overflow-hidden">
+                    <div class="p-4 bg-slate-50 border-b flex justify-between items-center">
+                        <h2 class="font-bold text-slate-700">Historial de Medidas</h2>
+                        <span class="text-xs text-slate-400 font-medium">Desliza para ver más →</span>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="bg-slate-100/50 text-[10px] uppercase tracking-tighter text-slate-500 font-bold">
+                                    <th class="px-4 py-3">Fecha</th>
+                                    <th class="px-4 py-3">Peso</th>
+                                    <th class="px-4 py-3 text-emerald-600">IMC</th>
+                                    <th class="px-4 py-3 text-purple-600">% Grasa</th>
+                                    <th class="px-4 py-3">Cintura</th>
+                                    <th class="px-4 py-3">Pecho</th>
+                                    <th class="px-4 py-3">Bíceps</th>
+                                    <th class="px-4 py-3">Muslo</th>
+                                    <th class="px-4 py-3 text-center">Acción</th>
+                                </tr>
+                            </thead>
+                            <tbody id="historyBody" class="divide-y divide-slate-100 text-sm">
+                                <!-- Datos dinámicos -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const apiKey = ""; 
+        let myChart;
+        let dataHistory = JSON.parse(localStorage.getItem('bodyTrackerDataLuis')) || [];
+
+        const form = document.getElementById('trackerForm');
+        const generoSelect = document.getElementById('genero');
+        const caderaGroup = document.getElementById('caderaGroup');
+        const aiModal = document.getElementById('aiModal');
+        const aiContent = document.getElementById('aiContent');
+        const aiLoading = document.getElementById('aiLoading');
+
+        window.closeModal = () => aiModal.classList.replace('flex', 'hidden');
+
+        generoSelect.addEventListener('change', () => {
+            caderaGroup.classList.toggle('hidden', generoSelect.value === 'hombre');
+        });
+
+        function calcularIMC(peso, estaturaCm) {
+            const estaturaM = estaturaCm / 100;
+            return (peso / (estaturaM * estaturaM)).toFixed(1);
+        }
+
+        function calcularGrasa(genero, cintura, cuello, cadera, estatura) {
+            let grasa = 0;
+            try {
+                if (genero === 'hombre') {
+                    grasa = 495 / (1.0324 - 0.19077 * Math.log10(cintura - cuello) + 0.15456 * Math.log10(estatura)) - 450;
+                } else {
+                    grasa = 495 / (1.29579 - 0.35004 * Math.log10(parseFloat(cintura) + parseFloat(cadera) - cuello) + 0.22100 * Math.log10(estatura)) - 450;
+                }
+            } catch(e) { return 0; }
+            return isNaN(grasa) ? 0 : Math.max(0, grasa.toFixed(1));
+        }
+
+        window.deleteEntry = (index) => {
+            if (confirm("¿Eliminar este registro de forma permanente?")) {
+                const entryDate = dataHistory[index].fecha;
+                dataHistory = dataHistory.filter(d => d.fecha !== entryDate);
+                updateUI();
+            }
+        };
+
+        // --- GEMINI INTEGRATION ---
+        async function fetchGemini(prompt, systemPrompt = "") {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+            let retries = 0;
+            while (retries < 3) {
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: [{ parts: [{ text: prompt }] }],
+                            systemInstruction: { parts: [{ text: systemPrompt }] }
+                        })
+                    });
+                    const result = await response.json();
+                    return result.candidates?.[0]?.content?.parts?.[0]?.text;
+                } catch (e) { retries++; await new Promise(r => setTimeout(r, 1000)); }
+            }
+            return "Error de conexión con la IA.";
+        }
+
+        async function getAiRecommendation() {
+            if (dataHistory.length === 0) return;
+            const last = dataHistory[dataHistory.length - 1];
+            const prompt = `Luis Rojas: Peso ${last.peso}kg, IMC ${last.imc}, % Grasa ${last.grasa}%. Cintura ${last.cintura}cm. Genera un consejo nutricional o de entrenamiento corto (15 palabras).`;
+            const system = "Eres un entrenador personal experto. Habla directo a Luis.";
+            const tip = await fetchGemini(prompt, system);
+            document.getElementById('quickTips').classList.remove('hidden');
+            document.getElementById('aiRecommendationText').innerText = tip;
+        }
+
+        document.getElementById('aiAnalyzeBtn').onclick = async () => {
+            if (dataHistory.length < 2) { alert("Registra al menos 2 fechas para comparar."); return; }
+            aiModal.classList.replace('hidden', 'flex');
+            aiLoading.classList.remove('hidden');
+            aiContent.innerHTML = "";
+            const history = dataHistory.slice(-5).map(d => `Fecha: ${d.fecha}, Peso: ${d.peso}kg, Grasa: ${d.grasa}%, Cintura: ${d.cintura}cm`).join('\n');
+            const analysis = await fetchGemini(
+                `Luis Rojas tiene este progreso:\n${history}\nAnaliza cambios en grasa vs peso. ¿Es pérdida de grasa real o solo peso?`,
+                "Eres un coach de salud. Responde en HTML usando <h3> para secciones y <ul> para consejos. Sé profesional y motivador."
+            );
+            aiLoading.classList.add('hidden');
+            aiContent.innerHTML = analysis;
+        };
+
+        function updateUI() {
+            const tbody = document.getElementById('historyBody');
+            tbody.innerHTML = '';
+            dataHistory.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+            const displayList = [...dataHistory].reverse();
+
+            displayList.forEach((reg) => {
+                const originalIndex = dataHistory.indexOf(reg);
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-slate-50 transition border-b border-slate-50";
+                tr.innerHTML = `
+                    <td class="px-4 py-4 font-medium text-slate-500">${new Date(reg.fecha).toLocaleDateString('es-ES', {day:'2-digit', month:'short'})}</td>
+                    <td class="px-4 py-4 font-bold text-slate-800">${reg.peso} <span class="text-[10px] font-normal text-slate-400">kg</span></td>
+                    <td class="px-4 py-4 font-semibold text-emerald-600">${reg.imc}</td>
+                    <td class="px-4 py-4 font-semibold text-purple-600">${reg.grasa}%</td>
+                    <td class="px-4 py-4 text-slate-600">${reg.cintura || '-'}</td>
+                    <td class="px-4 py-4 text-slate-600">${reg.pecho || '-'}</td>
+                    <td class="px-4 py-4 text-slate-600">${reg.biceps || '-'}</td>
+                    <td class="px-4 py-4 text-slate-600">${reg.muslo || '-'}</td>
+                    <td class="px-4 py-4 text-center">
+                        <button onclick="deleteEntry(${originalIndex})" class="text-slate-300 hover:text-red-500 transition">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            if (dataHistory.length > 0) {
+                const last = dataHistory[dataHistory.length - 1];
+                document.getElementById('statPeso').innerText = `${last.peso} kg`;
+                document.getElementById('statIMC').innerText = last.imc;
+                document.getElementById('statGrasa').innerText = `${last.grasa}%`;
+                updateChart();
+                getAiRecommendation();
+            } else {
+                document.getElementById('statPeso').innerText = "-- kg";
+                document.getElementById('statIMC').innerText = "--";
+                document.getElementById('statGrasa').innerText = "-- %";
+                if (myChart) myChart.destroy();
+                document.getElementById('quickTips').classList.add('hidden');
+            }
+            localStorage.setItem('bodyTrackerDataLuis', JSON.stringify(dataHistory));
+        }
+
+        function updateChart() {
+            if (dataHistory.length === 0) return;
+            const labels = dataHistory.map(d => new Date(d.fecha).toLocaleDateString('es-ES', {day:'numeric', month:'short'}));
+            if (myChart) myChart.destroy();
+            const ctx = document.getElementById('mainChart').getContext('2d');
+            myChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        { label: 'Peso (kg)', data: dataHistory.map(d => d.peso), borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.1)', fill: true, tension: 0.4, yAxisID: 'y' },
+                        { label: 'Grasa (%)', data: dataHistory.map(d => d.grasa), borderColor: '#a855f7', borderDash: [5, 5], tension: 0.4, yAxisID: 'y1' },
+                        { label: 'Cintura (cm)', data: dataHistory.map(d => d.cintura), borderColor: '#64748b', tension: 0.4, yAxisID: 'y1', hidden: true }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    scales: {
+                        y: { position: 'left', title: { display: true, text: 'kg' } },
+                        y1: { position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: '% / cm' } }
+                    },
+                    plugins: { legend: { position: 'top', labels: { usePointStyle: true } } }
+                }
+            });
+        }
+
+        form.onsubmit = (e) => {
+            e.preventDefault();
+            const fechaVal = document.getElementById('fecha').value;
+            if (dataHistory.some(d => d.fecha === fechaVal)) { alert("Ya existe un registro para esta fecha."); return; }
+
+            const peso = parseFloat(document.getElementById('peso').value);
+            const estatura = parseFloat(document.getElementById('estatura').value);
+            const cintura = parseFloat(document.getElementById('cintura').value);
+            const cuello = parseFloat(document.getElementById('cuello').value);
+            const cadera = parseFloat(document.getElementById('cadera').value || 0);
+            
+            const nuevoRegistro = {
+                fecha: fechaVal,
+                peso,
+                imc: calcularIMC(peso, estatura),
+                grasa: calcularGrasa(generoSelect.value, cintura, cuello, cadera, estatura),
+                cintura,
+                estatura,
+                hombros: document.getElementById('hombros').value,
+                pecho: document.getElementById('pecho').value,
+                biceps: document.getElementById('biceps').value,
+                antebrazo: document.getElementById('antebrazo').value,
+                abdomen: document.getElementById('abdomen').value,
+                gluteos: document.getElementById('gluteos').value,
+                muslo: document.getElementById('muslo').value,
+                pantorrilla: document.getElementById('pantorrilla').value
+            };
+
+            dataHistory.push(nuevoRegistro);
+            updateUI();
+            form.reset();
+            document.getElementById('estatura').value = estatura;
+            document.getElementById('fecha').valueAsDate = new Date();
+        };
+
+        window.onload = () => {
+            document.getElementById('fecha').valueAsDate = new Date();
+            updateUI();
+        };
+    </script>
+</body>
+</html>
