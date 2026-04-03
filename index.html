@@ -45,7 +45,7 @@
             <div class="glass-card p-6">
                 <h2 class="font-bold text-slate-800 mb-4 flex items-center gap-2 text-lg">
                     <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-                    Medición Completa
+                    Nueva Medición
                 </h2>
                 <form id="fitForm" class="space-y-3">
                     <div class="grid grid-cols-2 gap-3">
@@ -112,8 +112,8 @@
                     </div>
 
                     <input type="hidden" id="estatura" value="178">
-                    <button type="submit" id="submitBtn" class="btn-primary mt-4">
-                        Guardar en la Nube
+                    <button type="submit" id="submitBtn" class="btn-primary mt-4" disabled>
+                        Esperando Conexión...
                     </button>
                 </form>
             </div>
@@ -123,7 +123,7 @@
         <div class="lg:col-span-7 space-y-6">
             <div class="grid grid-cols-3 gap-3">
                 <div class="glass-card p-4 text-center">
-                    <p class="input-label">Peso</p>
+                    <p class="input-label">Último Peso</p>
                     <p id="curPeso" class="text-xl font-800 text-slate-900">--</p>
                 </div>
                 <div class="glass-card p-4 text-center">
@@ -142,11 +142,11 @@
 
             <div class="glass-card overflow-hidden">
                 <div class="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
-                    <h3 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Historial Sincronizado</h3>
+                    <h3 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest text-center w-full">Historial de Evolución</h3>
                 </div>
-                <div class="overflow-x-auto">
+                <div class="overflow-x-auto max-h-[400px] overflow-y-auto">
                     <table class="w-full text-left text-sm">
-                        <thead class="bg-slate-50 text-slate-400 text-[10px] uppercase font-bold border-b">
+                        <thead class="sticky top-0 bg-white shadow-sm text-slate-400 text-[10px] uppercase font-bold border-b z-10">
                             <tr>
                                 <th class="px-4 py-3">Fecha</th>
                                 <th class="px-4 py-3">Peso</th>
@@ -163,7 +163,6 @@
     </main>
 
     <script>
-        // Inicializar Firebase
         const firebaseConfig = JSON.parse(__firebase_config);
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'luis-fitness-cloud';
         
@@ -171,54 +170,76 @@
         const db = firebase.firestore();
         const auth = firebase.auth();
         let myChart;
+        let currentUser = null;
 
         const path = `artifacts/${appId}/public/data/measurements`;
 
         function setStatus(mode) {
             const badge = document.getElementById('syncStatus');
+            const btn = document.getElementById('submitBtn');
             if(mode === 'online') {
                 badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-500"></span> NUBE ACTIVA`;
                 badge.className = "text-[10px] font-bold px-3 py-1 rounded-full bg-emerald-50 text-emerald-600 uppercase tracking-widest flex items-center gap-2";
+                btn.disabled = false;
+                btn.innerText = "Guardar en la Nube";
             } else if(mode === 'sync') {
                 badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span> GUARDANDO...`;
                 badge.className = "text-[10px] font-bold px-3 py-1 rounded-full bg-blue-50 text-blue-600 uppercase tracking-widest flex items-center gap-2";
             } else if(mode === 'error') {
                 badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-red-500"></span> ERROR`;
                 badge.className = "text-[10px] font-bold px-3 py-1 rounded-full bg-red-50 text-red-600 uppercase tracking-widest flex items-center gap-2";
+                btn.disabled = true;
+                btn.innerText = "Error de Conexión";
             }
         }
 
-        // Conectar a la base de datos
-        auth.signInAnonymously().then(() => {
-            setStatus('online');
-            
-            // Listener en tiempo real
+        // Lógica de Autenticación y Carga de Datos
+        const initApp = async () => {
+            try {
+                // Primero nos aseguramos de estar autenticados antes de cualquier consulta
+                const cred = await auth.signInAnonymously();
+                currentUser = cred.user;
+                setStatus('online');
+                
+                // Una vez autenticados, iniciamos el listener de Firestore
+                startFirestoreListener();
+            } catch (err) {
+                console.error("Auth Error:", err);
+                setStatus('error');
+            }
+        };
+
+        function startFirestoreListener() {
+            if (!currentUser) return;
+
             db.collection(path).onSnapshot(snapshot => {
                 const data = [];
-                snapshot.forEach(doc => data.push({ id: doc.id, ...doc.data() }));
-                const sorted = data.sort((a,b) => new Date(a.fecha) - new Date(b.fecha));
-                updateDashboard(sorted);
+                snapshot.forEach(doc => {
+                    data.push({ id: doc.id, ...doc.data() });
+                });
+                
+                const sortedByDate = data.sort((a,b) => new Date(a.fecha) - new Date(b.fecha));
+                updateDashboard(sortedByDate);
             }, err => {
-                console.error("Error al leer datos:", err);
+                console.error("Firestore Permission/Access Error:", err);
                 setStatus('error');
             });
-        }).catch(err => {
-            console.error("Error de autenticación:", err);
-            setStatus('error');
-        });
+        }
 
         function updateDashboard(data) {
             const body = document.getElementById('tableBody');
             body.innerHTML = '';
-            if (data.length === 0) return;
+            
+            if (!data || data.length === 0) {
+                body.innerHTML = `<tr><td colspan="5" class="p-8 text-center text-slate-400 italic">No hay datos registrados aún</td></tr>`;
+                return;
+            }
 
-            const labels = [];
-            const pesos = [];
+            const chartLabels = [];
+            const chartValues = [];
+            const tableData = [...data].sort((a,b) => new Date(b.fecha) - new Date(a.fecha));
 
-            [...data].reverse().forEach(entry => {
-                labels.unshift(entry.fecha);
-                pesos.unshift(entry.peso);
-
+            tableData.forEach(entry => {
                 body.innerHTML += `
                     <tr class="hover:bg-slate-50 transition-colors">
                         <td class="px-4 py-3 font-bold text-slate-600 text-xs">${entry.fecha}</td>
@@ -226,10 +247,15 @@
                         <td class="px-4 py-3 text-slate-500">${entry.cintura}cm</td>
                         <td class="px-4 py-3 font-bold text-purple-600">${entry.grasa}%</td>
                         <td class="px-4 py-3 text-right">
-                            <button onclick="removeItem('${entry.id}')" class="text-slate-300 hover:text-red-500 text-lg transition-colors px-2">×</button>
+                            <button onclick="removeItem('${entry.id}')" class="text-slate-300 hover:text-red-500 text-lg transition-all p-1">×</button>
                         </td>
                     </tr>
                 `;
+            });
+
+            data.forEach(entry => {
+                chartLabels.push(entry.fecha);
+                chartValues.push(entry.peso);
             });
 
             const last = data[data.length - 1];
@@ -237,7 +263,7 @@
             document.getElementById('curGrasa').innerText = last.grasa + '%';
             document.getElementById('curIMC').innerText = last.imc;
 
-            initChart(labels, pesos);
+            initChart(chartLabels, chartValues);
         }
 
         function initChart(labels, values) {
@@ -255,6 +281,7 @@
                         fill: true,
                         tension: 0.4,
                         pointRadius: 4,
+                        pointHoverRadius: 6,
                         pointBackgroundColor: '#3b82f6'
                     }]
                 },
@@ -263,41 +290,41 @@
                     maintainAspectRatio: false,
                     plugins: { legend: { display: false } },
                     scales: {
-                        x: { grid: { display: false } },
-                        y: { grid: { color: '#f1f5f9' }, border: { display: false } }
+                        x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+                        y: { grid: { color: '#f1f5f9' }, border: { display: false }, ticks: { font: { size: 10 } } }
                     }
                 }
             });
         }
 
-        // Lógica del Formulario
         document.getElementById('fitForm').addEventListener('submit', async (e) => {
             e.preventDefault();
+            if (!currentUser) {
+                alert("Espera a que se establezca la conexión segura.");
+                return;
+            }
+
             const btn = document.getElementById('submitBtn');
             const originalText = btn.innerText;
             
-            // Bloquear botón y mostrar estado
             btn.disabled = true;
-            btn.innerText = "Guardando...";
+            btn.innerText = "Sincronizando...";
             setStatus('sync');
             
             const p = parseFloat(document.getElementById('peso').value);
             const cue = parseFloat(document.getElementById('cuello').value) || 0;
             const cin = parseFloat(document.getElementById('cintura').value) || 0;
-            const fecha = document.getElementById('fecha').value;
-            const est = 178; // 1.78m
+            const fechaVal = document.getElementById('fecha').value;
+            const est = 178;
 
-            // Cálculo de IMC
-            const imcValue = (p / ((est/100)**2)).toFixed(1);
-            
-            // Cálculo de Grasa (Fórmula Marina de EE. UU.)
-            let grasaValue = "--";
+            const imcVal = (p / ((est/100)**2)).toFixed(1);
+            let grasaVal = "0.0";
             if (cue > 0 && cin > cue) {
-                grasaValue = (495 / (1.0324 - 0.19077 * Math.log10(cin - cue) + 0.15456 * Math.log10(est)) - 450).toFixed(1);
+                grasaVal = (495 / (1.0324 - 0.19077 * Math.log10(cin - cue) + 0.15456 * Math.log10(est)) - 450).toFixed(1);
             }
 
             const registro = {
-                fecha,
+                fecha: fechaVal,
                 peso: p,
                 cuello: cue,
                 cintura: cin,
@@ -308,48 +335,50 @@
                 caderas: parseFloat(document.getElementById('caderas').value) || 0,
                 muslo: parseFloat(document.getElementById('muslo').value) || 0,
                 pantorrilla: parseFloat(document.getElementById('pantorrilla').value) || 0,
-                imc: imcValue,
-                grasa: grasaValue
+                imc: imcVal,
+                grasa: grasaVal,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
             };
 
             try {
-                // Guardar en Firestore usando la fecha como ID para evitar duplicados el mismo día
-                await db.collection(path).doc(fecha).set(registro);
-                
+                await db.collection(path).add(registro);
                 setStatus('online');
                 e.target.reset();
                 document.getElementById('fecha').valueAsDate = new Date();
                 
-                // Feedback visual de éxito
-                btn.innerText = "¡Guardado!";
+                btn.innerText = "¡Sincronizado!";
                 btn.style.backgroundColor = "#10b981";
                 setTimeout(() => {
                     btn.innerText = originalText;
                     btn.style.backgroundColor = "";
                     btn.disabled = false;
                 }, 2000);
-
             } catch (err) {
-                console.error("Error al guardar:", err);
-                alert("No se pudo guardar: " + err.message);
-                btn.disabled = false;
-                btn.innerText = originalText;
-                setStatus('online');
+                console.error("Save Error:", err);
+                setStatus('error');
+                btn.innerText = "Error al Guardar";
+                setTimeout(() => {
+                    btn.innerText = originalText;
+                    btn.disabled = false;
+                    setStatus('online');
+                }, 3000);
             }
         });
 
         window.removeItem = async (id) => {
-            if(confirm("¿Seguro que quieres borrar este registro de la nube?")) {
+            if (!currentUser) return;
+            if(confirm("¿Eliminar este registro permanentemente de la nube?")) {
                 try {
                     await db.collection(path).doc(id).delete();
                 } catch (err) {
-                    alert("Error al borrar: " + err.message);
+                    console.error("Delete Error:", err);
                 }
             }
         };
 
         window.onload = () => {
             document.getElementById('fecha').valueAsDate = new Date();
+            initApp();
         };
     </script>
 </body>
