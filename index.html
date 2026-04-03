@@ -6,124 +6,131 @@ import {
   setDoc, 
   onSnapshot, 
   collection, 
-  query, 
   deleteDoc,
-  serverTimestamp 
+  query
 } from 'firebase/firestore';
 import { 
   getAuth, 
   signInAnonymously, 
+  signInWithCustomToken,
   onAuthStateChanged 
 } from 'firebase/auth';
 import { 
-  LineChart, 
-  Line, 
+  AreaChart, 
+  Area, 
   XAxis, 
   YAxis, 
   CartesianGrid, 
   Tooltip, 
-  ResponsiveContainer, 
-  AreaChart, 
-  Area 
+  ResponsiveContainer 
 } from 'recharts';
 import { 
-  History, 
-  Plus, 
-  Save, 
   Trash2, 
   Cloud, 
-  CloudOff, 
   RefreshCw, 
-  ChevronRight,
-  Scale,
-  Activity,
-  Dna
+  Scale, 
+  Activity, 
+  Plus,
+  LayoutDashboard,
+  Calendar,
+  AlertCircle
 } from 'lucide-react';
 
-// --- CONFIGURACIÓN ---
+// --- CONFIGURACIÓN DE FIREBASE ---
 const firebaseConfig = JSON.parse(__firebase_config);
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'luis-fitness-tracker';
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'luisfit-tracker-v5';
 
 export default function App() {
   const [user, setUser] = useState(null);
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
-  const [connError, setConnError] = useState(null);
+  const [error, setError] = useState(null);
   
+  // Estado inicial con todos los campos originales
   const [formData, setFormData] = useState({
     fecha: new Date().toISOString().split('T')[0],
     peso: '',
     estatura: '178',
     cuello: '42',
     cintura: '108',
+    abdomen: '',
     biceps: '',
     muslo: '',
     genero: 'hombre'
   });
 
-  // 1. Autenticación
+  // 1. Manejo de Autenticación (REGLA 3)
   useEffect(() => {
     const initAuth = async () => {
       try {
-        await signInAnonymously(auth);
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
+        }
       } catch (err) {
-        console.error("Auth error:", err);
-        setConnError("Error de autenticación");
+        console.error("Error de Auth:", err);
+        setError("Error de conexión con el servidor");
       }
     };
     initAuth();
-    return onAuthStateChanged(auth, (u) => {
+    const unsubscribe = onAuthStateChanged(auth, (u) => {
       setUser(u);
       if (!u) setLoading(false);
     });
+    return () => unsubscribe();
   }, []);
 
-  // 2. Escuchar Datos
+  // 2. Escucha de Datos en tiempo real (REGLA 1 y 2)
   useEffect(() => {
     if (!user) return;
     
     setLoading(true);
-    const q = collection(db, 'artifacts', appId, 'public', 'data', 'measurements');
+    // Usamos la ruta obligatoria: /artifacts/{appId}/public/data/{collection}
+    const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'registros');
     
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      const sortedData = data.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
-      setHistory(sortedData);
-      setLoading(false);
-      setConnError(null);
-    }, (err) => {
-      console.error("Firestore error:", err);
-      setConnError("Error de Billing/API: Revisa la consola");
-      setLoading(false);
-    });
+    const unsubscribe = onSnapshot(colRef, 
+      (snapshot) => {
+        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        // Ordenar en memoria para evitar errores de índices compuestos en Firestore
+        const sorted = data.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+        setHistory(sorted);
+        setLoading(false);
+        setError(null);
+      }, 
+      (err) => {
+        console.error("Error Firestore:", err);
+        setError("Error de API: Verifica la facturación en Google Cloud");
+        setLoading(false);
+      }
+    );
 
     return () => unsubscribe();
   }, [user]);
 
-  // 3. Cálculos
-  const stats = useMemo(() => {
-    if (history.length === 0) return { peso: '--', imc: '--', grasa: '--' };
-    const last = history[history.length - 1];
-    return {
-      peso: last.peso,
-      imc: last.imc,
-      grasa: last.grasa
-    };
-  }, [history]);
+  // Lógica de Cálculos
+  const calcularMetricas = (data) => {
+    const p = parseFloat(data.peso);
+    const e = parseFloat(data.estatura) / 100;
+    const c = parseFloat(data.cintura);
+    const n = parseFloat(data.cuello);
+    const a = parseFloat(data.abdomen || data.cintura); // Abdomen suele ser igual o mayor a cintura
 
-  const calcularGrasa = (gen, cin, cue, est) => {
-    const c = parseFloat(cin);
-    const n = parseFloat(cue);
-    const h = parseFloat(est);
-    if (!c || !n || !h) return 0;
+    if (!p || !e) return { imc: 0, grasa: 0 };
+
+    const imc = (p / (e * e)).toFixed(1);
     
-    // Fórmula de la Marina de EE.UU.
-    let g = 495 / (1.0324 - 0.19077 * Math.log10(c - n) + 0.15456 * Math.log10(h)) - 450;
-    return Math.max(0, parseFloat(g).toFixed(1));
+    // Fórmula de la Marina (Hombres)
+    let grasa = 0;
+    if (c > 0 && n > 0 && e > 0) {
+      grasa = (495 / (1.0324 - 0.19077 * Math.log10(c - n) + 0.15456 * Math.log10(e * 100)) - 450).toFixed(1);
+    }
+    
+    return { imc, grasa: Math.max(0, grasa) };
   };
 
   const handleSave = async (e) => {
@@ -131,192 +138,221 @@ export default function App() {
     if (!user || syncing) return;
 
     setSyncing(true);
-    const imc = (parseFloat(formData.peso) / ((parseFloat(formData.estatura) / 100) ** 2)).toFixed(1);
-    const grasa = calcularGrasa(formData.genero, formData.cintura, formData.cuello, formData.estatura);
+    const { imc, grasa } = calcularMetricas(formData);
 
-    const newDoc = {
+    const registro = {
       ...formData,
-      imc,
-      grasa,
-      timestamp: Date.now()
+      imc: parseFloat(imc),
+      grasa: parseFloat(grasa),
+      actualizado: new Date().toISOString()
     };
 
     try {
-      // Usamos la fecha como ID para evitar duplicados del mismo día
-      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'measurements', formData.fecha), newDoc);
+      // Usamos la fecha como ID de documento para evitar duplicados del mismo día
+      const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'registros', formData.fecha);
+      await setDoc(docRef, registro);
       setSyncing(false);
-      // Reset parcial
-      setFormData(prev => ({ ...prev, peso: '', biceps: '', muslo: '' }));
+      // Limpiar campos variables pero mantener constantes
+      setFormData(prev => ({ ...prev, peso: '', abdomen: '', biceps: '', muslo: '' }));
     } catch (err) {
-      console.error("Save error:", err);
+      console.error("Error al guardar:", err);
       setSyncing(false);
-      alert("Error al guardar: Posible problema de cuotas o Billing en Firebase.");
+      setError("No se pudo guardar: Revisa la consola para detalles de Billing");
     }
   };
 
-  const deleteEntry = async (id) => {
-    if (!confirm("¿Eliminar registro?")) return;
+  const eliminarRegistro = async (id) => {
+    if (!user) return;
     try {
-      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'measurements', id));
+      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'registros', id));
     } catch (err) {
       console.error(err);
     }
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
-        <RefreshCw className="w-10 h-10 text-blue-500 animate-spin mb-4" />
-        <p className="text-slate-500 font-bold animate-pulse">Sincronizando con la nube...</p>
-      </div>
-    );
-  }
+  const stats = useMemo(() => {
+    if (history.length === 0) return { peso: '0', grasa: '0', imc: '0' };
+    const ultimo = history[history.length - 1];
+    return {
+      peso: ultimo.peso,
+      grasa: ultimo.grasa,
+      imc: ultimo.imc
+    };
+  }, [history]);
+
+  if (loading) return (
+    <div className="h-screen flex flex-col items-center justify-center bg-slate-50">
+      <RefreshCw className="w-12 h-12 text-blue-600 animate-spin mb-4" />
+      <p className="font-bold text-slate-400">Sincronizando con LuisFit Cloud...</p>
+    </div>
+  );
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] text-slate-900 pb-20">
-      {/* Header */}
-      <nav className="bg-white border-b border-slate-200 px-6 py-4 sticky top-0 z-50">
-        <div className="max-w-6xl mx-auto flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-blue-200">
-              <Scale size={24} strokeWidth={2.5} />
+    <div className="min-h-screen bg-[#F1F5F9] pb-12">
+      {/* Header Superior */}
+      <header className="bg-white border-b border-slate-200 sticky top-0 z-40">
+        <div className="max-w-6xl mx-auto px-4 h-20 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="bg-blue-600 p-2.5 rounded-2xl shadow-lg shadow-blue-200">
+              <Activity className="text-white" size={28} />
             </div>
             <div>
-              <h1 className="text-xl font-black tracking-tight flex items-center gap-1">
-                LUIS<span className="text-blue-600">FIT</span>
-              </h1>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Cloud System v4.1</p>
+              <h1 className="text-xl font-black text-slate-800 tracking-tight">LUISFIT <span className="text-blue-600 font-bold underline decoration-4 underline-offset-4">CLOUD</span></h1>
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Sistema de Progreso Personal</span>
             </div>
           </div>
-
-          <div className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-[10px] font-black uppercase transition-all ${
-            connError ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-600'
+          
+          <div className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${
+            error ? 'bg-red-50 text-red-600 border border-red-100' : 'bg-emerald-50 text-emerald-600 border border-emerald-100'
           }`}>
-            <div className={`w-2 h-2 rounded-full ${connError ? 'bg-red-500 animate-pulse' : 'bg-emerald-500'}`} />
-            {connError || 'Conectado'}
+            <div className={`w-2 h-2 rounded-full ${error ? 'bg-red-500 animate-pulse' : 'bg-emerald-500'}`} />
+            {error ? 'Error de Sincronización' : 'Cloud Conectado'}
           </div>
         </div>
-      </nav>
+      </header>
 
-      <main className="max-w-6xl mx-auto px-4 mt-8">
+      <main className="max-w-6xl mx-auto px-4 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           
-          {/* Columna Izquierda: Formulario */}
+          {/* LADO IZQUIERDO: Formulario con campos originales */}
           <div className="lg:col-span-4 space-y-6">
-            <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm">
-              <h2 className="text-lg font-black mb-6 flex items-center gap-2">
-                <Plus className="text-blue-600" size={20} /> Nuevo Registro
-              </h2>
-              
+            <div className="bg-white rounded-[2.5rem] p-8 shadow-xl shadow-slate-200/50 border border-white">
+              <div className="flex items-center gap-3 mb-8">
+                <Plus className="text-blue-600" size={24} strokeWidth={3} />
+                <h2 className="text-lg font-black text-slate-800">NUEVA ENTRADA</h2>
+              </div>
+
               <form onSubmit={handleSave} className="space-y-5">
-                <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Fecha</label>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-slate-400 uppercase ml-2">Fecha del Registro</label>
                   <input 
-                    type="date" 
+                    type="date" required
                     value={formData.fecha}
                     onChange={e => setFormData({...formData, fecha: e.target.value})}
-                    className="w-full mt-1 p-3 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none font-bold transition-all"
+                    className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold focus:border-blue-500 outline-none transition-all"
                   />
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Peso (kg)</label>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase ml-2">Peso (kg)</label>
                     <input 
-                      type="number" step="0.1" required
+                      type="number" step="0.1" required placeholder="00.0"
                       value={formData.peso}
                       onChange={e => setFormData({...formData, peso: e.target.value})}
-                      placeholder="0.0"
-                      className="w-full mt-1 p-3 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none font-bold"
+                      className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold focus:border-blue-500 outline-none"
                     />
                   </div>
-                  <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Cuello (cm)</label>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase ml-2">Cuello (cm)</label>
                     <input 
                       type="number" step="0.1"
                       value={formData.cuello}
                       onChange={e => setFormData({...formData, cuello: e.target.value})}
-                      className="w-full mt-1 p-3 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none font-bold"
+                      className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold focus:border-blue-500 outline-none"
                     />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Cintura (cm)</label>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase ml-2">Cintura (cm)</label>
                     <input 
                       type="number" step="0.1"
                       value={formData.cintura}
                       onChange={e => setFormData({...formData, cintura: e.target.value})}
-                      className="w-full mt-1 p-3 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none font-bold"
+                      className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold focus:border-blue-500 outline-none"
                     />
                   </div>
-                  <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Bíceps (cm)</label>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase ml-2">Abdomen (cm)</label>
+                    <input 
+                      type="number" step="0.1"
+                      value={formData.abdomen}
+                      onChange={e => setFormData({...formData, abdomen: e.target.value})}
+                      className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold focus:border-blue-500 outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase ml-2">Bíceps (cm)</label>
                     <input 
                       type="number" step="0.1"
                       value={formData.biceps}
                       onChange={e => setFormData({...formData, biceps: e.target.value})}
-                      placeholder="Opcional"
-                      className="w-full mt-1 p-3 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none font-bold"
+                      className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold focus:border-blue-500 outline-none"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase ml-2">Muslo (cm)</label>
+                    <input 
+                      type="number" step="0.1"
+                      value={formData.muslo}
+                      onChange={e => setFormData({...formData, muslo: e.target.value})}
+                      className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold focus:border-blue-500 outline-none"
                     />
                   </div>
                 </div>
 
                 <button 
                   type="submit"
-                  disabled={syncing || connError}
-                  className={`w-full py-4 rounded-2xl font-black text-sm uppercase tracking-wider transition-all flex items-center justify-center gap-2 shadow-lg ${
-                    syncing ? 'bg-slate-100 text-slate-400 cursor-not-allowed shadow-none' : 'bg-slate-900 text-white hover:bg-blue-600 shadow-slate-200'
+                  disabled={syncing || error}
+                  className={`w-full py-5 rounded-2xl font-black text-sm uppercase tracking-widest flex items-center justify-center gap-3 transition-all transform active:scale-95 shadow-xl ${
+                    syncing ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700 shadow-blue-200'
                   }`}
                 >
-                  {syncing ? <RefreshCw className="animate-spin" size={18} /> : <Cloud size={18} />}
-                  {syncing ? 'Sincronizando...' : 'Guardar en la Nube'}
+                  {syncing ? <RefreshCw className="animate-spin" /> : <Cloud />}
+                  {syncing ? 'Guardando...' : 'Sincronizar Datos'}
                 </button>
               </form>
             </div>
 
-            <div className="bg-blue-600 rounded-3xl p-6 text-white shadow-xl shadow-blue-100">
-              <div className="flex items-center gap-2 mb-2">
-                <Activity size={18} />
-                <span className="text-[10px] font-black uppercase tracking-widest opacity-80">Estado de cuenta</span>
+            {error && (
+              <div className="bg-red-50 border-2 border-red-100 p-6 rounded-[2rem] flex gap-4">
+                <AlertCircle className="text-red-500 shrink-0" />
+                <p className="text-xs font-bold text-red-700 leading-relaxed">
+                  {error}. Esto suele ocurrir cuando el proyecto requiere habilitar facturación en Google Cloud Console.
+                </p>
               </div>
-              <h3 className="text-xl font-black mb-2">Base de Datos Activa</h3>
-              <p className="text-xs font-medium leading-relaxed opacity-90">
-                Tus datos están protegidos en la nube de Google. Puedes acceder desde cualquier dispositivo con este link.
-              </p>
-            </div>
+            )}
           </div>
 
-          {/* Columna Derecha: Dashboard */}
+          {/* LADO DERECHO: Dashboard de Progreso */}
           <div className="lg:col-span-8 space-y-6">
             
-            {/* Stats Cards */}
-            <div className="grid grid-cols-3 gap-4">
+            {/* Tarjetas de Resumen */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {[
-                { label: 'Peso', val: stats.peso, unit: 'kg', color: 'text-slate-900' },
-                { label: 'Grasa %', val: stats.grasa, unit: '%', color: 'text-blue-600' },
-                { label: 'IMC', val: stats.imc, unit: '', color: 'text-purple-600' }
-              ].map((s, i) => (
-                <div key={i} className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm">
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{s.label}</p>
-                  <div className="flex items-baseline gap-1">
-                    <span className={`text-2xl font-black ${s.color}`}>{s.val}</span>
-                    <span className="text-xs font-bold text-slate-400">{s.unit}</span>
+                { label: 'Peso Actual', val: stats.peso, unit: 'kg', icon: Scale, color: 'text-slate-800' },
+                { label: 'Grasa Corporal', val: stats.grasa, unit: '%', icon: Activity, color: 'text-blue-600' },
+                { label: 'IMC Corporal', val: stats.imc, unit: '', icon: LayoutDashboard, color: 'text-purple-600' }
+              ].map((card, idx) => (
+                <div key={idx} className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm flex flex-col justify-between">
+                  <div className="flex justify-between items-start">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{card.label}</span>
+                    <card.icon size={16} className="text-slate-300" />
+                  </div>
+                  <div className="mt-4 flex items-baseline gap-1">
+                    <span className={`text-3xl font-black ${card.color}`}>{card.val}</span>
+                    <span className="text-xs font-bold text-slate-400">{card.unit}</span>
                   </div>
                 </div>
               ))}
             </div>
 
-            {/* Grafico */}
-            <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm">
-              <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">Tendencia de Peso</h3>
-              <div className="h-[280px] w-full">
+            {/* Gráfico de Tendencia */}
+            <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm">
+              <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-8 flex items-center gap-2">
+                <Calendar size={14} /> Evolución de Peso (kg)
+              </h3>
+              <div className="h-[300px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={history}>
                     <defs>
-                      <linearGradient id="colorPeso" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.1}/>
+                      <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.15}/>
                         <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
                       </linearGradient>
                     </defs>
@@ -325,68 +361,70 @@ export default function App() {
                       dataKey="fecha" 
                       axisLine={false} 
                       tickLine={false} 
-                      tick={{fontSize: 10, fontWeight: 700, fill: '#94a3b8'}}
+                      tick={{fontSize: 10, fontWeight: 800, fill: '#94a3b8'}}
                       dy={10}
                     />
                     <YAxis 
                       hide 
-                      domain={['dataMin - 2', 'dataMax + 2']} 
+                      domain={['dataMin - 1', 'dataMax + 1']} 
                     />
                     <Tooltip 
-                      contentStyle={{borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', fontWeight: 'bold'}}
+                      contentStyle={{borderRadius: '20px', border: 'none', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1)', fontWeight: 'bold'}}
                     />
                     <Area 
                       type="monotone" 
                       dataKey="peso" 
                       stroke="#3b82f6" 
-                      strokeWidth={4}
+                      strokeWidth={4} 
                       fillOpacity={1} 
-                      fill="url(#colorPeso)" 
+                      fill="url(#colorValue)" 
                     />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
             </div>
 
-            {/* Tabla */}
-            <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm">
-              <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-                <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Historial Sincronizado</h3>
-                <span className="text-[10px] font-black bg-white border px-2 py-0.5 rounded-lg text-slate-400">{history.length} Entradas</span>
+            {/* Listado de Historial */}
+            <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden">
+              <div className="p-6 bg-slate-50/50 border-b border-slate-100 flex justify-between items-center">
+                <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Registros en la Nube</h3>
+                <span className="bg-white px-3 py-1 rounded-full border text-[10px] font-black text-blue-600">{history.length} sesiones</span>
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full text-left">
+                <table className="w-full">
                   <thead>
-                    <tr className="text-[10px] font-black text-slate-400 uppercase">
-                      <th className="px-6 py-4">Fecha</th>
-                      <th className="px-6 py-4">Peso</th>
-                      <th className="px-6 py-4">Grasa %</th>
-                      <th className="px-6 py-4 text-right">Acción</th>
+                    <tr className="text-left text-[10px] font-black text-slate-400 uppercase">
+                      <th className="px-8 py-4">Fecha</th>
+                      <th className="px-8 py-4">Peso</th>
+                      <th className="px-8 py-4">Grasa %</th>
+                      <th className="px-8 py-4">Abdomen</th>
+                      <th className="px-8 py-4 text-right">Borrar</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
                     {history.length === 0 ? (
                       <tr>
-                        <td colSpan="4" className="px-6 py-12 text-center text-slate-400 font-bold italic">
-                          No hay datos en la nube aún...
+                        <td colSpan="5" className="px-8 py-16 text-center text-slate-300 font-bold italic">
+                          No hay registros disponibles...
                         </td>
                       </tr>
                     ) : (
                       [...history].reverse().map((item) => (
-                        <tr key={item.id} className="hover:bg-slate-50 transition-colors group">
-                          <td className="px-6 py-4 text-xs font-black text-slate-400">{item.fecha}</td>
-                          <td className="px-6 py-4 text-sm font-black">{item.peso}kg</td>
-                          <td className="px-6 py-4">
-                            <span className="px-2 py-1 bg-blue-50 text-blue-600 rounded-lg text-[10px] font-black">
+                        <tr key={item.id} className="hover:bg-slate-50/80 transition-colors group">
+                          <td className="px-8 py-5 text-sm font-bold text-slate-500">{item.fecha}</td>
+                          <td className="px-8 py-5 text-sm font-black text-slate-800">{item.peso} kg</td>
+                          <td className="px-8 py-5">
+                            <span className="px-3 py-1 bg-blue-50 text-blue-600 rounded-full text-[10px] font-black">
                               {item.grasa}%
                             </span>
                           </td>
-                          <td className="px-6 py-4 text-right">
+                          <td className="px-8 py-5 text-sm font-bold text-slate-500">{item.abdomen || '-'} cm</td>
+                          <td className="px-8 py-5 text-right">
                             <button 
-                              onClick={() => deleteEntry(item.id)}
-                              className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all opacity-0 group-hover:opacity-100"
+                              onClick={() => eliminarRegistro(item.id)}
+                              className="p-2 text-slate-200 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all opacity-0 group-hover:opacity-100"
                             >
-                              <Trash2 size={16} />
+                              <Trash2 size={18} />
                             </button>
                           </td>
                         </tr>
