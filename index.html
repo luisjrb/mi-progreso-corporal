@@ -1,295 +1,405 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LuisFit | Cloud System</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- Firebase SDK Moderno -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, deleteDoc, doc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+import React, { useState, useEffect, useMemo } from 'react';
+import { initializeApp } from 'firebase/app';
+import { 
+  getFirestore, 
+  doc, 
+  setDoc, 
+  onSnapshot, 
+  collection, 
+  query, 
+  deleteDoc,
+  serverTimestamp 
+} from 'firebase/firestore';
+import { 
+  getAuth, 
+  signInAnonymously, 
+  onAuthStateChanged 
+} from 'firebase/auth';
+import { 
+  LineChart, 
+  Line, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer, 
+  AreaChart, 
+  Area 
+} from 'recharts';
+import { 
+  History, 
+  Plus, 
+  Save, 
+  Trash2, 
+  Cloud, 
+  CloudOff, 
+  RefreshCw, 
+  ChevronRight,
+  Scale,
+  Activity,
+  Dna
+} from 'lucide-react';
 
-        // CONFIGURACIÓN DE SEGURIDAD
-        let config;
-        try {
-            config = JSON.parse(__firebase_config);
-        } catch (e) {
-            console.error("Error al cargar configuración", e);
-            document.body.innerHTML = "<div class='p-10 text-center font-bold'>Error: Configuración de Firebase no encontrada.</div>";
-        }
+// --- CONFIGURACIÓN ---
+const firebaseConfig = JSON.parse(__firebase_config);
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'luis-fitness-tracker';
 
-        const app = initializeApp(config);
-        const db = getFirestore(app);
-        const auth = getAuth(app);
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'luisfit-default';
+export default function App() {
+  const [user, setUser] = useState(null);
+  const [history, setHistory] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [connError, setConnError] = useState(null);
+  
+  const [formData, setFormData] = useState({
+    fecha: new Date().toISOString().split('T')[0],
+    peso: '',
+    estatura: '178',
+    cuello: '42',
+    cintura: '108',
+    biceps: '',
+    muslo: '',
+    genero: 'hombre'
+  });
 
-        // Elementos UI
-        const statusIndicator = document.getElementById('statusIndicator');
-        const saveButton = document.getElementById('saveButton');
-        const historyTable = document.getElementById('historyTable');
-        const logCount = document.getElementById('logCount');
-        let myChart;
+  // 1. Autenticación
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        await signInAnonymously(auth);
+      } catch (err) {
+        console.error("Auth error:", err);
+        setConnError("Error de autenticación");
+      }
+    };
+    initAuth();
+    return onAuthStateChanged(auth, (u) => {
+      setUser(u);
+      if (!u) setLoading(false);
+    });
+  }, []);
 
-        // 1. Autenticación Anónima
-        const startApp = async () => {
-            try {
-                await signInAnonymously(auth);
-                onAuthStateChanged(auth, (user) => {
-                    if (user) {
-                        updateStatus(true);
-                        listenToData();
-                    }
-                });
-            } catch (error) {
-                console.error("Auth error", error);
-                updateStatus(false);
-            }
-        };
+  // 2. Escuchar Datos
+  useEffect(() => {
+    if (!user) return;
+    
+    setLoading(true);
+    const q = collection(db, 'artifacts', appId, 'public', 'data', 'measurements');
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const sortedData = data.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+      setHistory(sortedData);
+      setLoading(false);
+      setConnError(null);
+    }, (err) => {
+      console.error("Firestore error:", err);
+      setConnError("Error de Billing/API: Revisa la consola");
+      setLoading(false);
+    });
 
-        const updateStatus = (online) => {
-            if (online) {
-                statusIndicator.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-500 shadow-lg"></span> NUBE ACTIVA`;
-                statusIndicator.className = "flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-50 text-[10px] font-black text-emerald-600 uppercase";
-                saveButton.disabled = false;
-                saveButton.innerText = "Guardar Registro";
-            } else {
-                statusIndicator.innerHTML = `<span class="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span> ERROR DE CONEXIÓN`;
-                statusIndicator.className = "flex items-center gap-2 px-4 py-2 rounded-full bg-red-50 text-[10px] font-black text-red-600 uppercase";
-                saveButton.disabled = true;
-            }
-        };
+    return () => unsubscribe();
+  }, [user]);
 
-        // 2. Escuchar Datos (Tiempo Real)
-        const listenToData = () => {
-            const dataPath = collection(db, 'artifacts', appId, 'public', 'data', 'measurements');
-            // Nota: El ordenamiento se hace en memoria para evitar errores de índice de Firestore
-            onSnapshot(dataPath, (snapshot) => {
-                const logs = [];
-                snapshot.forEach(doc => logs.push({ id: doc.id, ...doc.data() }));
-                
-                // Ordenar por fecha
-                logs.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
-                renderUI(logs);
-            }, (error) => {
-                console.error("Snapshot error", error);
-                updateStatus(false);
-            });
-        };
+  // 3. Cálculos
+  const stats = useMemo(() => {
+    if (history.length === 0) return { peso: '--', imc: '--', grasa: '--' };
+    const last = history[history.length - 1];
+    return {
+      peso: last.peso,
+      imc: last.imc,
+      grasa: last.grasa
+    };
+  }, [history]);
 
-        const renderUI = (data) => {
-            historyTable.innerHTML = '';
-            if (data.length === 0) {
-                historyTable.innerHTML = '<tr><td colspan="5" class="p-8 text-center text-slate-400">Sin registros guardados</td></tr>';
-                return;
-            }
+  const calcularGrasa = (gen, cin, cue, est) => {
+    const c = parseFloat(cin);
+    const n = parseFloat(cue);
+    const h = parseFloat(est);
+    if (!c || !n || !h) return 0;
+    
+    // Fórmula de la Marina de EE.UU.
+    let g = 495 / (1.0324 - 0.19077 * Math.log10(c - n) + 0.15456 * Math.log10(h)) - 450;
+    return Math.max(0, parseFloat(g).toFixed(1));
+  };
 
-            logCount.innerText = data.length;
-            const latest = data[data.length - 1];
-            
-            document.getElementById('statPeso').innerText = latest.peso + ' kg';
-            document.getElementById('statGrasa').innerText = latest.grasa + '%';
+  const handleSave = async (e) => {
+    e.preventDefault();
+    if (!user || syncing) return;
 
-            // Dibujar tabla (últimos arriba)
-            [...data].reverse().forEach(row => {
-                const tr = document.createElement('tr');
-                tr.className = "hover:bg-slate-50 transition-all group font-medium border-b border-slate-100";
-                tr.innerHTML = `
-                    <td class="px-6 py-4 text-slate-500 font-bold">${row.fecha}</td>
-                    <td class="px-6 py-4 font-black text-slate-900">${row.peso}k</td>
-                    <td class="px-6 py-4 text-blue-600 font-bold">${row.grasa}%</td>
-                    <td class="px-6 py-4 text-slate-400">${row.cintura}cm</td>
-                    <td class="px-6 py-4 text-right">
-                        <button class="delete-btn opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-500 transition-all" data-id="${row.id}">
-                            <svg class="w-4 h-4 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-                        </button>
-                    </td>
-                `;
-                historyTable.appendChild(tr);
-            });
+    setSyncing(true);
+    const imc = (parseFloat(formData.peso) / ((parseFloat(formData.estatura) / 100) ** 2)).toFixed(1);
+    const grasa = calcularGrasa(formData.genero, formData.cintura, formData.cuello, formData.estatura);
 
-            // Gráfico
-            updateChart(data.map(d => d.fecha), data.map(d => d.peso));
-        };
+    const newDoc = {
+      ...formData,
+      imc,
+      grasa,
+      timestamp: Date.now()
+    };
 
-        const updateChart = (labels, values) => {
-            const ctx = document.getElementById('mainChart').getContext('2d');
-            if (myChart) myChart.destroy();
-            myChart = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels,
-                    datasets: [{
-                        data: values,
-                        borderColor: '#3b82f6',
-                        backgroundColor: 'rgba(59, 130, 246, 0.05)',
-                        fill: true,
-                        tension: 0.4,
-                        borderWidth: 4,
-                        pointRadius: 4,
-                        pointBackgroundColor: '#fff'
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: { legend: { display: false } },
-                    scales: { y: { border: { display: false } }, x: { grid: { display: false } } }
-                }
-            });
-        };
+    try {
+      // Usamos la fecha como ID para evitar duplicados del mismo día
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'measurements', formData.fecha), newDoc);
+      setSyncing(false);
+      // Reset parcial
+      setFormData(prev => ({ ...prev, peso: '', biceps: '', muslo: '' }));
+    } catch (err) {
+      console.error("Save error:", err);
+      setSyncing(false);
+      alert("Error al guardar: Posible problema de cuotas o Billing en Firebase.");
+    }
+  };
 
-        // 3. Guardar Datos
-        document.getElementById('trackerForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const btn = saveButton;
-            btn.disabled = true;
-            btn.innerText = "Sincronizando...";
+  const deleteEntry = async (id) => {
+    if (!confirm("¿Eliminar registro?")) return;
+    try {
+      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'measurements', id));
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
-            const peso = parseFloat(document.getElementById('peso').value);
-            const cintura = parseFloat(document.getElementById('cintura').value);
-            const cuello = parseFloat(document.getElementById('cuello').value);
-            const estatura = 178;
+  if (loading) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
+        <RefreshCw className="w-10 h-10 text-blue-500 animate-spin mb-4" />
+        <p className="text-slate-500 font-bold animate-pulse">Sincronizando con la nube...</p>
+      </div>
+    );
+  }
 
-            const grasaCalc = (495 / (1.0324 - 0.19077 * Math.log10(cintura - cuello) + 0.15456 * Math.log10(estatura)) - 450).toFixed(1);
+  return (
+    <div className="min-h-screen bg-[#F8FAFC] text-slate-900 pb-20">
+      {/* Header */}
+      <nav className="bg-white border-b border-slate-200 px-6 py-4 sticky top-0 z-50">
+        <div className="max-w-6xl mx-auto flex justify-between items-center">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-blue-200">
+              <Scale size={24} strokeWidth={2.5} />
+            </div>
+            <div>
+              <h1 className="text-xl font-black tracking-tight flex items-center gap-1">
+                LUIS<span className="text-blue-600">FIT</span>
+              </h1>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Cloud System v4.1</p>
+            </div>
+          </div>
 
-            try {
-                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'measurements'), {
-                    fecha: document.getElementById('fecha').value,
-                    peso, cintura, cuello,
-                    grasa: grasaCalc,
-                    timestamp: serverTimestamp()
-                });
-                e.target.reset();
-                document.getElementById('fecha').valueAsDate = new Date();
-                btn.innerText = "¡Guardado!";
-                setTimeout(() => updateStatus(true), 1500);
-            } catch (err) {
-                console.error(err);
-                alert("Error al guardar. Verifica las reglas de Firestore.");
-                updateStatus(true);
-            }
-        });
+          <div className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-[10px] font-black uppercase transition-all ${
+            connError ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-600'
+          }`}>
+            <div className={`w-2 h-2 rounded-full ${connError ? 'bg-red-500 animate-pulse' : 'bg-emerald-500'}`} />
+            {connError || 'Conectado'}
+          </div>
+        </div>
+      </nav>
 
-        // Eventos delegados para borrar
-        document.addEventListener('click', async (e) => {
-            if (e.target.classList.contains('delete-btn')) {
-                const id = e.target.dataset.id;
-                if (confirm("¿Borrar este registro de la nube?")) {
-                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'measurements', id));
-                }
-            }
-        });
-
-        // Inicializar
-        document.getElementById('fecha').valueAsDate = new Date();
-        startApp();
-    </script>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap');
-        body { font-family: 'Plus Jakarta Sans', sans-serif; background: #f8fafc; color: #1e293b; }
-        .glass-card { background: white; border: 1px solid #e2e8f0; border-radius: 1.5rem; }
-        .input-style { width: 100%; padding: 0.75rem; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 0.8rem; outline: none; transition: 0.2s; font-size: 14px; font-weight: 600; }
-        .input-style:focus { border-color: #3b82f6; background: white; }
-        .label-style { font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase; margin-bottom: 5px; display: block; letter-spacing: 0.05em; }
-        .btn-main { background: #0f172a; color: white; padding: 1rem; border-radius: 1rem; font-weight: 700; width: 100%; transition: 0.3s; cursor: pointer; }
-        .btn-main:hover:not(:disabled) { background: #3b82f6; transform: translateY(-2px); }
-        .btn-main:disabled { background: #cbd5e1; cursor: not-allowed; }
-    </style>
-</head>
-<body class="min-h-screen pb-10">
-
-    <nav class="sticky top-0 z-50 bg-white/80 backdrop-blur-lg border-b border-slate-200 px-6 py-4">
-        <div class="max-w-6xl mx-auto flex justify-between items-center">
-            <div class="flex items-center gap-3">
-                <div class="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white font-black">L</div>
+      <main className="max-w-6xl mx-auto px-4 mt-8">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+          
+          {/* Columna Izquierda: Formulario */}
+          <div className="lg:col-span-4 space-y-6">
+            <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm">
+              <h2 className="text-lg font-black mb-6 flex items-center gap-2">
+                <Plus className="text-blue-600" size={20} /> Nuevo Registro
+              </h2>
+              
+              <form onSubmit={handleSave} className="space-y-5">
                 <div>
-                    <h1 class="text-xl font-extrabold tracking-tighter uppercase leading-none">Luis<span class="text-blue-600">Fit</span></h1>
-                    <span class="text-[9px] font-bold text-slate-400 tracking-widest uppercase">Cloud System v4.1</span>
+                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Fecha</label>
+                  <input 
+                    type="date" 
+                    value={formData.fecha}
+                    onChange={e => setFormData({...formData, fecha: e.target.value})}
+                    className="w-full mt-1 p-3 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none font-bold transition-all"
+                  />
                 </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Peso (kg)</label>
+                    <input 
+                      type="number" step="0.1" required
+                      value={formData.peso}
+                      onChange={e => setFormData({...formData, peso: e.target.value})}
+                      placeholder="0.0"
+                      className="w-full mt-1 p-3 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Cuello (cm)</label>
+                    <input 
+                      type="number" step="0.1"
+                      value={formData.cuello}
+                      onChange={e => setFormData({...formData, cuello: e.target.value})}
+                      className="w-full mt-1 p-3 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none font-bold"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Cintura (cm)</label>
+                    <input 
+                      type="number" step="0.1"
+                      value={formData.cintura}
+                      onChange={e => setFormData({...formData, cintura: e.target.value})}
+                      className="w-full mt-1 p-3 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Bíceps (cm)</label>
+                    <input 
+                      type="number" step="0.1"
+                      value={formData.biceps}
+                      onChange={e => setFormData({...formData, biceps: e.target.value})}
+                      placeholder="Opcional"
+                      className="w-full mt-1 p-3 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none font-bold"
+                    />
+                  </div>
+                </div>
+
+                <button 
+                  type="submit"
+                  disabled={syncing || connError}
+                  className={`w-full py-4 rounded-2xl font-black text-sm uppercase tracking-wider transition-all flex items-center justify-center gap-2 shadow-lg ${
+                    syncing ? 'bg-slate-100 text-slate-400 cursor-not-allowed shadow-none' : 'bg-slate-900 text-white hover:bg-blue-600 shadow-slate-200'
+                  }`}
+                >
+                  {syncing ? <RefreshCw className="animate-spin" size={18} /> : <Cloud size={18} />}
+                  {syncing ? 'Sincronizando...' : 'Guardar en la Nube'}
+                </button>
+              </form>
             </div>
-            <div id="statusIndicator" class="flex items-center gap-2 px-4 py-2 rounded-full bg-slate-100 text-[10px] font-black text-slate-500">
-                <span class="w-2 h-2 rounded-full bg-slate-400 animate-pulse"></span>
-                CONECTANDO...
+
+            <div className="bg-blue-600 rounded-3xl p-6 text-white shadow-xl shadow-blue-100">
+              <div className="flex items-center gap-2 mb-2">
+                <Activity size={18} />
+                <span className="text-[10px] font-black uppercase tracking-widest opacity-80">Estado de cuenta</span>
+              </div>
+              <h3 className="text-xl font-black mb-2">Base de Datos Activa</h3>
+              <p className="text-xs font-medium leading-relaxed opacity-90">
+                Tus datos están protegidos en la nube de Google. Puedes acceder desde cualquier dispositivo con este link.
+              </p>
             </div>
+          </div>
+
+          {/* Columna Derecha: Dashboard */}
+          <div className="lg:col-span-8 space-y-6">
+            
+            {/* Stats Cards */}
+            <div className="grid grid-cols-3 gap-4">
+              {[
+                { label: 'Peso', val: stats.peso, unit: 'kg', color: 'text-slate-900' },
+                { label: 'Grasa %', val: stats.grasa, unit: '%', color: 'text-blue-600' },
+                { label: 'IMC', val: stats.imc, unit: '', color: 'text-purple-600' }
+              ].map((s, i) => (
+                <div key={i} className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{s.label}</p>
+                  <div className="flex items-baseline gap-1">
+                    <span className={`text-2xl font-black ${s.color}`}>{s.val}</span>
+                    <span className="text-xs font-bold text-slate-400">{s.unit}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Grafico */}
+            <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm">
+              <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">Tendencia de Peso</h3>
+              <div className="h-[280px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={history}>
+                    <defs>
+                      <linearGradient id="colorPeso" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.1}/>
+                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis 
+                      dataKey="fecha" 
+                      axisLine={false} 
+                      tickLine={false} 
+                      tick={{fontSize: 10, fontWeight: 700, fill: '#94a3b8'}}
+                      dy={10}
+                    />
+                    <YAxis 
+                      hide 
+                      domain={['dataMin - 2', 'dataMax + 2']} 
+                    />
+                    <Tooltip 
+                      contentStyle={{borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', fontWeight: 'bold'}}
+                    />
+                    <Area 
+                      type="monotone" 
+                      dataKey="peso" 
+                      stroke="#3b82f6" 
+                      strokeWidth={4}
+                      fillOpacity={1} 
+                      fill="url(#colorPeso)" 
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Tabla */}
+            <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm">
+              <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Historial Sincronizado</h3>
+                <span className="text-[10px] font-black bg-white border px-2 py-0.5 rounded-lg text-slate-400">{history.length} Entradas</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead>
+                    <tr className="text-[10px] font-black text-slate-400 uppercase">
+                      <th className="px-6 py-4">Fecha</th>
+                      <th className="px-6 py-4">Peso</th>
+                      <th className="px-6 py-4">Grasa %</th>
+                      <th className="px-6 py-4 text-right">Acción</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {history.length === 0 ? (
+                      <tr>
+                        <td colSpan="4" className="px-6 py-12 text-center text-slate-400 font-bold italic">
+                          No hay datos en la nube aún...
+                        </td>
+                      </tr>
+                    ) : (
+                      [...history].reverse().map((item) => (
+                        <tr key={item.id} className="hover:bg-slate-50 transition-colors group">
+                          <td className="px-6 py-4 text-xs font-black text-slate-400">{item.fecha}</td>
+                          <td className="px-6 py-4 text-sm font-black">{item.peso}kg</td>
+                          <td className="px-6 py-4">
+                            <span className="px-2 py-1 bg-blue-50 text-blue-600 rounded-lg text-[10px] font-black">
+                              {item.grasa}%
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <button 
+                              onClick={() => deleteEntry(item.id)}
+                              className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all opacity-0 group-hover:opacity-100"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+          </div>
         </div>
-    </nav>
-
-    <main class="max-w-6xl mx-auto px-4 mt-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
-        
-        <div class="lg:col-span-4 space-y-6">
-            <div class="glass-card p-6">
-                <h2 class="text-lg font-bold mb-6 flex items-center gap-2">Registrar Progreso</h2>
-                <form id="trackerForm" class="space-y-4">
-                    <div class="grid grid-cols-2 gap-4">
-                        <div>
-                            <label class="label-style">Fecha</label>
-                            <input type="date" id="fecha" class="input-style" required>
-                        </div>
-                        <div>
-                            <label class="label-style">Peso (Kg)</label>
-                            <input type="number" step="0.1" id="peso" class="input-style" required>
-                        </div>
-                    </div>
-                    <div class="p-4 bg-slate-50 rounded-2xl grid grid-cols-2 gap-4">
-                        <div>
-                            <label class="label-style">Cintura (cm)</label>
-                            <input type="number" step="0.1" id="cintura" class="input-style" value="108">
-                        </div>
-                        <div>
-                            <label class="label-style">Cuello (cm)</label>
-                            <input type="number" step="0.1" id="cuello" class="input-style" value="42">
-                        </div>
-                    </div>
-                    <button type="submit" id="saveButton" class="btn-main" disabled>Sincronizando...</button>
-                </form>
-            </div>
-        </div>
-
-        <div class="lg:col-span-8 space-y-6">
-            <div class="grid grid-cols-2 gap-4">
-                <div class="glass-card p-6">
-                    <p class="label-style">Peso Actual</p>
-                    <p id="statPeso" class="text-3xl font-black">--</p>
-                </div>
-                <div class="glass-card p-6">
-                    <p class="label-style text-blue-600">% Grasa Est.</p>
-                    <p id="statGrasa" class="text-3xl font-black text-blue-600">--</p>
-                </div>
-            </div>
-
-            <div class="glass-card p-6">
-                <div class="h-[300px]">
-                    <canvas id="mainChart"></canvas>
-                </div>
-            </div>
-
-            <div class="glass-card overflow-hidden">
-                <div class="px-6 py-4 bg-slate-50 border-b flex justify-between items-center">
-                    <span class="text-xs font-black uppercase text-slate-500">Historial Cloud</span>
-                    <span id="logCount" class="text-[10px] bg-white px-2 py-1 rounded-md border font-bold">0</span>
-                </div>
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left">
-                        <thead class="text-[10px] font-black text-slate-400 uppercase border-b">
-                            <tr>
-                                <th class="px-6 py-4">Fecha</th>
-                                <th class="px-6 py-4">Peso</th>
-                                <th class="px-6 py-4">Grasa %</th>
-                                <th class="px-6 py-4">Cintura</th>
-                                <th class="px-6 py-4 text-right"></th>
-                            </tr>
-                        </thead>
-                        <tbody id="historyTable" class="divide-y divide-slate-100 text-sm">
-                            <tr><td colspan="5" class="p-8 text-center">Iniciando base de datos...</td></tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    </main>
-
-</body>
-</html>
+      </main>
+    </div>
+  );
+}
